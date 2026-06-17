@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="true">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Crystal Nebula">
+<title>Crystal Nebula — Visual Meditation</title>
+<!-- SEO / SSR-ready meta (Nuxt.js SSR pattern) -->
+<meta name="description" content="Interactive Three.js visual meditation — calming motion, audio-reactive glow.">
+<meta property="og:title" content="Crystal Nebula">
+<meta property="og:description" content="Glowing crystal rendered real-time. No video files.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Fixed WebGL canvas (Three.js renders here) -->
+<canvas id="gl-canvas"></canvas>
+
+<div id="vignette"></div>
+<div id="crystal-glow"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div>
+    <div id="hud-title">Crystal Nebula</div>
+    <div id="hud-sub">Calm visual meditation</div>
+  </div>
+  <div id="hud-actions">
+    <button id="mic-btn" type="button" aria-pressed="false">Enable Audio Share</button>
+    <div id="mic-state">AUDIO OFF · click to share system audio</div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SCROLL ROOT ═══════════════════ -->
+<div id="scroll-root">
+
+  <!-- HERO -->
+  <section class="section" id="sec-hero">
+    <!-- crystal rendered in WebGL background; no content needed -->
+  </section>
+
+  <!-- PIN SPACER: GSAP ScrollTrigger pins crystal rotation here -->
+  <div id="pin-spacer">
+    <div style="height:100%; display:flex; align-items:center; justify-content:flex-end; padding:0 10vw;">
+      <div class="card" id="card-crystal">
+        <h2>Glowing Crystal</h2>
+        <p>Rendered in real-time by Three.js — zero video files. Every facet is a live fragment shader catching light. Scroll to rotate the crystal through 360°.</p>
+        <span class="tag">THREE.JS</span>
+        <span class="tag">WebGL</span>
+        <span class="tag">GSAP</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <section class="section" style="min-height:40vh;justify-content:center;align-items:center;flex-direction:column;gap:16px;">
+    <div style="font-size:9px;letter-spacing:.4em;color:var(--c1-dim)">CRYSTAL NEBULA — VISUAL MEDITATION</div>
+    <div style="font-size:8px;letter-spacing:.2em;color:rgba(159,216,255,0.22)">THREE.JS · AUDIO-RESPONSIVE · SOFT MOTION</div>
+  </section>
+
+</div><!-- /scroll-root -->
+
+<!-- ═══════════════════ SCRIPTS ═══════════════════ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+/* ═══════════════════════════════════════════════════════
+   CORE HELPERS
+═══════════════════════════════════════════════════════ */
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const lerp = (from, to, t) => from + (to - from) * t;
+
+const canvas = document.getElementById('gl-canvas');
+const micBtn = document.getElementById('mic-btn');
+const micState = document.getElementById('mic-state');
+
+/* ═══════════════════════════════════════════════════════
+   THREE.JS RENDERER — cinematic crystal core
+═══════════════════════════════════════════════════════ */
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const rendererConfig = { 
+  canvas, 
+  antialias: true, 
+  alpha: true,
+  powerPreference: isIOS ? 'default' : 'high-performance'
+};
+const renderer = new THREE.WebGLRenderer(rendererConfig);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.setPixelRatio(Math.min(devicePixelRatio, isIOS ? 1 : 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x000000, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.22;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000000, 0.0165);
+
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 500);
+camera.position.set(0, 0.1, 22);
+
+/* ── Two-color system: BLACK + PASTEL LAVENDER ── */
+const C1 = new THREE.Color(0xC8B6FF);
+const C0 = new THREE.Color(0x000000);
+
+/* ── Lights ── */
+scene.add(new THREE.HemisphereLight(0x2a2f5f, 0x00000b, 0.65));
+scene.add(new THREE.AmbientLight(0x101432, 0.6));
+const keyLight = new THREE.PointLight(0xC8B6FF, 4.8, 78);
+keyLight.position.set(8, 8, 15);
+scene.add(keyLight);
+const rimLight = new THREE.PointLight(0x9FD8FF, 2.1, 64);
+rimLight.position.set(-12, -5, -8);
+scene.add(rimLight);
+const topLight = new THREE.PointLight(0xC8B6FF, 1.8, 46);
+topLight.position.set(0, 13, -7);
+scene.add(topLight);
+const mouseLight = new THREE.PointLight(0xC8B6FF, 0, 28);
+scene.add(mouseLight);
+
+/* ── GLOWING CRYSTAL ── */
+const crystalGroup = new THREE.Group();
+scene.add(crystalGroup);
+
+const crystalCore = new THREE.Group();
+crystalGroup.add(crystalCore);
+
+const innerGeo = new THREE.SphereGeometry(0.95, 30, 22);
+const innerMat = new THREE.MeshPhongMaterial({
+  color: 0xC8B6FF,
+  emissive: 0xC8B6FF,
+  emissiveIntensity: 0.95,
+  specular: 0xffffff,
+  shininess: 320,
+  transparent: true,
+  opacity: 0.9
+});
+const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+innerMesh.scale.set(1.08, 1.02, 0.96);
+crystalCore.add(innerMesh);
+
+const midGeo = new THREE.SphereGeometry(1.38, 24, 18);
+const midMat = new THREE.MeshStandardMaterial({
+  color: 0x312e58,
+  emissive: 0xC8B6FF,
+  emissiveIntensity: 0.55,
+  roughness: 0.18,
+  metalness: 0.12,
+  transparent: true,
+  opacity: 0.7
+});
+const midMesh = new THREE.Mesh(midGeo, midMat);
+midMesh.scale.set(1.04, 0.98, 1.0);
+crystalCore.add(midMesh);
+
+const shellGeo = new THREE.SphereGeometry(1.82, 22, 16);
+const shellMat = new THREE.MeshBasicMaterial({
+  color: 0xC8B6FF,
+  wireframe: true,
+  transparent: true,
+  opacity: 0.2,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+const shellMesh = new THREE.Mesh(shellGeo, shellMat);
+shellMesh.scale.set(1.06, 0.98, 1.02);
+crystalCore.add(shellMesh);
+
+const haloGeo = new THREE.SphereGeometry(2.45, 26, 26);
+const haloMat = new THREE.MeshBasicMaterial({
+  color: 0xC8B6FF,
+  transparent: true,
+  opacity: 0.045,
+  side: THREE.BackSide,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+crystalCore.add(haloMesh);
+
+const ringGeo = new THREE.TorusGeometry(2.7, 0.035, 8, 120);
+const ringMat = new THREE.MeshBasicMaterial({
+  color: 0xC8B6FF,
+  transparent: true,
+  opacity: 0.24,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+ringMesh.rotation.x = Math.PI / 2;
+crystalGroup.add(ringMesh);
+
+const ringGeo2 = new THREE.TorusGeometry(3.05, 0.02, 8, 120);
+const ringMat2 = new THREE.MeshBasicMaterial({
+  color: 0x9FD8FF,
+  transparent: true,
+  opacity: 0.12,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+const ringMesh2 = new THREE.Mesh(ringGeo2, ringMat2);
+ringMesh2.rotation.y = Math.PI / 2;
+crystalGroup.add(ringMesh2);
+
+/* ── Stardust field ── */
+function createStarLayer(count, spread, size, opacity, zScale, driftSpeed, twinkleSpeed) {
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(count * 3);
+  const phases = new Float32Array(count);
+  const drift = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * TAU;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const radius = spread * (0.25 + Math.random() * 0.75);
+    const x = radius * Math.sin(phi) * Math.cos(theta);
+    const y = radius * Math.sin(phi) * Math.sin(theta) * zScale;
+    const z = radius * Math.cos(phi);
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
+    phases[i] = Math.random() * TAU;
+    drift[i] = (Math.random() * 0.6 + 0.4) * (Math.random() < 0.5 ? -1 : 1);
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xC8B6FF,
+    size,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
+  const points = new THREE.Points(geo, mat);
+  scene.add(points);
+  return { points, geo, positions, phases, drift, opacityBase: opacity, sizeBase: size, driftSpeed, twinkleSpeed };
+}
+
+const starLayers = [
+  createStarLayer(400, 260, 0.08, 0.20, 1.0, 0.015, 0.55),
+  createStarLayer(300, 200, 0.055, 0.14, 0.7, 0.022, 0.8),
+  createStarLayer(180, 140, 0.042, 0.18, 0.45, 0.03, 1.15),
+  createStarLayer(90, 70, 0.03, 0.22, 0.25, 0.045, 1.75)
+];
+
+/* ── CUBE INSTANCES (performance core retained) ── */
+const COUNT = 120;
+const cbGeo = new THREE.SphereGeometry(0.11, 10, 10);
+const cbMat = new THREE.MeshPhongMaterial({
+  color: 0xC8B6FF,
+  emissive: 0x2c3071,
+  specular: 0x9FD8FF,
+  shininess: 150,
+  transparent: true,
+  opacity: 0.82
+});
+const cubes = new THREE.InstancedMesh(cbGeo, cbMat, COUNT);
+scene.add(cubes);
+const satelliteCyan = new THREE.Color(0xC8B6FF);
+const satelliteRed = new THREE.Color(0x9FD8FF);
+
+const satellites = [], speeds = [], radii = [], phases = [], bobAmp = [], bobFreq = [], scatterDirs = [], scatterStrengths = [];
+const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(),
+      tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3();
+const ringRadius = 7.5;
+const ringThickness = 1.55;
+const ringHeight = 0.45;
+const ringJitter = 0.18;
+
+for (let i = 0; i < COUNT; i++) {
+  const ang = Math.random() * TAU;
+  const radialOffset = (Math.random() - 0.5) * ringThickness;
+  const height = (Math.random() - 0.5) * ringHeight;
+  const radius = ringRadius + radialOffset;
+  satellites.push(new THREE.Vector3(
+    Math.cos(ang) * radius,
+    height,
+    Math.sin(ang) * radius
+  ));
+  phases.push(Math.random() * TAU);
+  speeds.push((Math.random() * 0.4 + 0.1) * (Math.random() < 0.5 ? 1 : -1));
+  radii.push(Math.abs(radialOffset));
+  bobAmp.push(Math.random() * 0.08 + 0.02);
+  bobFreq.push(Math.random() * 0.9 + 0.35);
+  const scatterTheta = Math.random() * TAU;
+  const scatterPhi = Math.acos(2 * Math.random() - 1);
+  scatterDirs.push(new THREE.Vector3(
+    Math.sin(scatterPhi) * Math.cos(scatterTheta),
+    (Math.sin(scatterPhi) * Math.sin(scatterTheta)) * 0.65,
+    Math.cos(scatterPhi)
+  ).normalize());
+  scatterStrengths.push(ringRadius * (1.05 + Math.random() * 0.9));
+  tmpM.setPosition(satellites[i]);
+  cubes.setMatrixAt(i, tmpM);
+}
+cubes.instanceMatrix.needsUpdate = true;
+
+/* ── Calm click effects ── */
+const calmEffectColor = new THREE.Color(0xC8B6FF);
+const activeOrbitalRings = [];
+const activeMicroSatellites = [];
+const clickCooldownMs = 1200;
+let lastClickAt = -Infinity;
+const effectOrigin = new THREE.Vector3(0, 0, 0);
+
+function disposeMesh(mesh) {
+  scene.remove(mesh);
+  if (mesh.geometry) mesh.geometry.dispose();
+  if (mesh.material) mesh.material.dispose();
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function spawnOrbitalRingExpansion() {
+  const ringCount = Math.random() < 0.5 ? 1 : 2;
+  for (let i = 0; i < ringCount; i++) {
+    const geometry = new THREE.TorusGeometry(1, 0.035, 8, 128);
+    const material = new THREE.MeshBasicMaterial({
+      color: calmEffectColor.clone(),
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false
+    });
+    const ring = new THREE.Mesh(geometry, material);
+    ring.position.copy(effectOrigin);
+    ring.rotation.x = i === 0 ? Math.PI / 2 : Math.PI / 3;
+    ring.rotation.z = Math.random() * TAU;
+    ring.scale.setScalar(0);
+    ring.userData = {
+      startTime: elapsed,
+      duration: 4.2 + Math.random() * 0.8,
+      maxScale: 4.2 + Math.random() * 0.6
+    };
+    scene.add(ring);
+    activeOrbitalRings.push(ring);
+  }
+}
+
+function spawnMicroSatelliteDrift() {
+  const count = 4 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < count; i++) {
+    const geometry = new THREE.SphereGeometry(0.06, 12, 12);
+    const material = new THREE.MeshBasicMaterial({
+      color: calmEffectColor.clone(),
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(
+      (Math.random() - 0.5) * 0.18,
+      (Math.random() - 0.5) * 0.18,
+      (Math.random() - 0.5) * 0.18
+    );
+    mesh.userData = {
+      startTime: elapsed,
+      duration: 4.8 + Math.random() * 1.2,
+      driftSpeed: 0.004 + Math.random() * 0.004,
+      driftDir: new THREE.Vector3(
+        Math.random() - 0.5,
+        Math.random() - 0.5,
+        Math.random() - 0.5
+      ).normalize()
+    };
+    scene.add(mesh);
+    activeMicroSatellites.push(mesh);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   SCROLL + CAMERA MOTION
+═══════════════════════════════════════════════════════ */
+let scrollTarget = 0;
+let scrollProgress = 0;
+let scrollRotY = 0;
+let scrollRotX = 0;
+let scrollCamX = 0;
+let scrollCamY = 0;
+let scrollCamZ = 0;
+
+gsap.to({}, {
+  scrollTrigger: {
+    trigger: '#pin-spacer',
+    start: 'top top',
+    end: 'bottom bottom',
+    scrub: true,
+    onUpdate: self => {
+      scrollTarget = self.progress;
+    }
+  }
+});
+
+window.addEventListener('scroll', () => {
+  // keep the page responsive for scroll-driven motion
+}, { passive: true });
+
+/* ── Card reveal on scroll ── */
+const cards = document.querySelectorAll('.card, .pf-item');
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) e.target.classList.add('visible');
+  });
+}, { threshold: 0.15 });
+cards.forEach(c => io.observe(c));
+
+
+/* ═══════════════════════════════════════════════════════
+   INTERACTION
+═══════════════════════════════════════════════════════ */
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+let orbitTheta = 0.2, orbitPhi = 0.05, orbitDist = 22;
+let orbitThetaV = 0, orbitPhiV = 0;
+let cameraTarget = new THREE.Vector3();
+let lookTarget = new THREE.Vector3();
+let mouseTarget = new THREE.Vector3();
+const raycaster = new THREE.Raycaster(), mouseNDC = new THREE.Vector2();
+const mousePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const mouseWorld = new THREE.Vector3();
+let mouseRaw = { x: innerWidth / 2, y: innerHeight / 2 };
+
+document.addEventListener('mousemove', e => {
+  mouseRaw = { x: e.clientX, y: e.clientY };
+  mouseNDC.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(mouseNDC, camera);
+  raycaster.ray.intersectPlane(mousePlane, mouseWorld);
+  mouseTarget.copy(mouseWorld);
+  if (isDragging) {
+    const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+    orbitThetaV = dx * 0.008;
+    orbitPhiV = dy * 0.006;
+    orbitTheta += orbitThetaV;
+    orbitPhi = clamp(orbitPhi + orbitPhiV, -1.15, 1.15);
+    dragStart = { x: e.clientX, y: e.clientY };
+  }
+});
+
+document.addEventListener('mousedown', e => {
+  if (e.target.closest && e.target.closest('#hud-actions')) return;
+  isDragging = true;
+  dragStart = { x: e.clientX, y: e.clientY };
+  orbitThetaV = 0;
+  orbitPhiV = 0;
+});
+
+document.addEventListener('mouseup', () => { isDragging = false; });
+
+/* ── Touch events for mobile ── */
+let touchStart = { x: 0, y: 0 };
+document.addEventListener('touchstart', e => {
+  if (e.target.closest && e.target.closest('#hud-actions')) return;
+  if (e.touches.length === 1) {
+    isDragging = true;
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    dragStart = { ...touchStart };
+    orbitThetaV = 0;
+    orbitPhiV = 0;
+  }
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (e.target.closest && e.target.closest('#hud-actions')) return;
+  if (isDragging && e.touches.length === 1) {
+    const touch = e.touches[0];
+    const dx = touch.clientX - dragStart.x;
+    const dy = touch.clientY - dragStart.y;
+    orbitThetaV = dx * 0.008;
+    orbitPhiV = dy * 0.006;
+    orbitTheta += orbitThetaV;
+    orbitPhi = clamp(orbitPhi + orbitPhiV, -1.15, 1.15);
+    dragStart = { x: touch.clientX, y: touch.clientY };
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', () => { isDragging = false; }, { passive: true });
+document.addEventListener('wheel', e => {
+  orbitDist = clamp(orbitDist + e.deltaY * 0.04, 5, 45);
+}, { passive: true });
+
+/* ── Pinch to zoom for mobile ── */
+let lastDistance = 0;
+document.addEventListener('touchmove', e => {
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (lastDistance > 0) {
+      const delta = (lastDistance - distance) * 0.08;
+      orbitDist = clamp(orbitDist + delta, 5, 45);
+    }
+    lastDistance = distance;
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', () => {
+  lastDistance = 0;
+}, { passive: true });
+
+document.addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#hud-actions')) return;
+  const now = performance.now();
+  if (now - lastClickAt < clickCooldownMs) return;
+  lastClickAt = now;
+  spawnOrbitalRingExpansion();
+  setTimeout(() => {
+    if (now === lastClickAt) {
+      spawnMicroSatelliteDrift();
+    }
+  }, 300);
+});
+
+/* ── Tap effect for touch ── */
+document.addEventListener('touchend', e => {
+  if (e.target.closest && e.target.closest('#hud-actions')) return;
+  const now = performance.now();
+  if (now - lastClickAt < clickCooldownMs) return;
+  if (e.changedTouches.length === 1 && !isDragging) {
+    lastClickAt = now;
+    spawnOrbitalRingExpansion();
+    setTimeout(() => {
+      if (now === lastClickAt) {
+        spawnMicroSatelliteDrift();
+      }
+    }, 300);
+  }
+}, { passive: true });
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ── iOS-specific viewport fixes ── */
+if (isIOS) {
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    }, 100);
+  });
+  
+  document.addEventListener('touchstart', e => {
+    if (e.target === document.body) e.preventDefault();
+  }, { passive: false });
+}
+
+/* ═══════════════════════════════════════════════════════
+   MICROPHONE COLOR BREATHING
+═══════════════════════════════════════════════════════ */
+let micStream = null;
+let audioCtx = null;
+let analyser = null;
+let audioData = null;
+let audioTimeData = null;
+let micEnabled = false;
+let micPermissionKnown = false;
+let audioLevel = 0;
+let audioBass = 0;
+let audioTreble = 0;
+let audioHueShift = 0;
+let audioAttack = 0;
+let audioFlux = 0;
+let audioDb = -100;
+let audioTier = 0;
+let satelliteRedMix = 0;
+let satelliteScatterMix = 0;
+let satelliteWanderBoost = 1;
+let audioSoundActive = false;
+
+function setMicState(label, active = false) {
+  micState.textContent = label;
+  micBtn.classList.toggle('active', active);
+  micBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  micBtn.textContent = active ? 'Disable Mic' : 'Enable Mic';
+}
+
+async function disableMic(message = 'MIC OFF · click to listen') {
+  micEnabled = false;
+  if (micStream) {
+    micStream.getTracks().forEach(track => track.stop());
+    micStream = null;
+  }
+  if (audioCtx) {
+    try { await audioCtx.close(); } catch (_) {}
+    audioCtx = null;
+  }
+  analyser = null;
+  audioData = null;
+  audioTimeData = null;
+  audioLevel = 0;
+  audioBass = 0;
+  audioTreble = 0;
+  audioHueShift = 0;
+  audioAttack = 0;
+  audioFlux = 0;
+  audioDb = -100;
+  audioTier = 0;
+  satelliteRedMix = 0;
+  satelliteScatterMix = 0;
+  satelliteWanderBoost = 1;
+  audioSoundActive = false;
+  setMicState(message, false);
+}
+
+async function enableMic() {
+  if (micEnabled) {
+    await disableMic();
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setMicState('AUDIO UNSUPPORTED · browser lacks APIs', false);
+    return;
+  }
+  micBtn.disabled = true;
+  setMicState('REQUESTING MIC · browser prompt', false);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: false
+      }
+    });
+    if (!stream) throw new Error('No audio stream available');
+    micStream = stream;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioCtx();
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+    const source = audioCtx.createMediaStreamSource(micStream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.86;
+    audioData = new Uint8Array(analyser.frequencyBinCount);
+    audioTimeData = new Uint8Array(analyser.fftSize);
+    source.connect(analyser);
+    micEnabled = true;
+    micPermissionKnown = true;
+    setMicState('AUDIO LIVE · subtle color breathing', true);
+  } catch (err) {
+    console.error('Mic error:', err);
+    micPermissionKnown = true;
+    setMicState('AUDIO DENIED · visuals still run', false);
+    micEnabled = false;
+  } finally {
+    micBtn.disabled = false;
+  }
+}
+
+micBtn.addEventListener('click', enableMic);
+window.addEventListener('pagehide', () => { disableMic('AUDIO OFF · click to share again'); });
+
+/* ═══════════════════════════════════════════════════════
+   ANIMATE
+═══════════════════════════════════════════════════════ */
+const clock = new THREE.Clock();
+let elapsed = 0;
+let pulseSeed = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt;
+  pulseSeed += dt;
+
+  /* ── Microphone analysis ── */
+  if (analyser && audioData) {
+    analyser.getByteFrequencyData(audioData);
+    analyser.getByteTimeDomainData(audioTimeData);
+    let low = 0, high = 0, total = 0;
+    let sumSq = 0;
+    const len = audioData.length;
+    const lowCut = Math.floor(len * 0.22);
+    const highCut = Math.floor(len * 0.7);
+    for (let i = 0; i < len; i++) {
+      const value = audioData[i];
+      total += value;
+      if (i <= lowCut) low += value;
+      if (i >= highCut) high += value;
+    }
+    for (let i = 0; i < audioTimeData.length; i++) {
+      const sample = (audioTimeData[i] - 128) / 128;
+      sumSq += sample * sample;
+    }
+    const rms = Math.sqrt(sumSq / Math.max(1, audioTimeData.length));
+    audioDb = 20 * Math.log10(Math.max(rms, 0.00001));
+    const energy = total / len / 255;
+    const bass = low / Math.max(1, (lowCut + 1) * 255);
+    const treble = high / Math.max(1, (len - highCut) * 255);
+    const attack = Math.max(0, energy - audioLevel);
+    audioLevel = lerp(audioLevel, energy, 0.08);
+    audioBass = lerp(audioBass, bass, 0.08);
+    audioTreble = lerp(audioTreble, treble, 0.08);
+    audioAttack = lerp(audioAttack, attack, 0.18);
+    audioFlux = lerp(audioFlux, clamp(audioBass * 0.62 + audioTreble * 0.38, 0, 1), 0.12);
+    audioHueShift = lerp(audioHueShift, clamp((audioTreble - audioBass) * 0.028 + audioAttack * 0.012, -0.022, 0.022), 0.08);
+  } else {
+    audioLevel = lerp(audioLevel, 0, 0.03);
+    audioBass = lerp(audioBass, 0, 0.03);
+    audioTreble = lerp(audioTreble, 0, 0.03);
+    audioHueShift = lerp(audioHueShift, 0, 0.03);
+    audioAttack = lerp(audioAttack, 0, 0.05);
+    audioFlux = lerp(audioFlux, 0, 0.04);
+    audioDb = lerp(audioDb, -100, 0.08);
+  }
+
+  /* ── Audio-bias colors and atmosphere ── */
+  const dbThresholds = [-58, -48, -38, -28];
+  const dbOn = -58;
+  const dbOff = -62;
+  const scatterTiers = [0, 0.05, 0.12, 0.2, 0.3];
+  const redTiers = [0, 0.18, 0.38, 0.62, 0.8];
+  let tier = 0;
+  if (audioDb >= dbThresholds[0]) tier = 1;
+  if (audioDb >= dbThresholds[1]) tier = 2;
+  if (audioDb >= dbThresholds[2]) tier = 3;
+  if (audioDb >= dbThresholds[3]) tier = 4;
+  if (audioSoundActive) {
+    if (audioDb <= dbOff) audioSoundActive = false;
+  } else if (audioDb >= dbOn) {
+    audioSoundActive = true;
+  }
+  const soundActive = audioSoundActive;
+  audioTier = tier;
+  const redTarget = tier > 0 ? redTiers[tier] : 0;
+  satelliteRedMix = lerp(satelliteRedMix, redTarget, soundActive ? 0.14 : 0.06);
+  const scatterTarget = soundActive ? scatterTiers[tier] : 0;
+  const scatterLerp = soundActive
+    ? (scatterTarget > satelliteScatterMix ? 0.085 : 0.035)
+    : 0.018;
+  satelliteScatterMix = lerp(satelliteScatterMix, scatterTarget, scatterLerp);
+  satelliteWanderBoost = lerp(satelliteWanderBoost, soundActive ? 1 : 1.3, soundActive ? 0.08 : 0.03);
+  const hue = clamp(0.465 + audioHueShift * 6, 0.438, 0.755);
+  const lightness = clamp(0.49 + audioLevel * 0.08 + audioAttack * 0.03, 0.46, 0.62);
+  const saturation = clamp(0.94 + audioFlux * 0.06, 0.9, 1);
+  C1.setHSL(hue, saturation, lightness);
+  renderer.toneMappingExposure = 1.12 + audioLevel * 0.2 + audioAttack * 0.1;
+  scene.fog.density = 0.016 + audioLevel * 0.0032 + audioAttack * 0.0008;
+  keyLight.intensity = 4.2 + audioLevel * 2.0 + audioBass * 0.8;
+  rimLight.intensity = 1.7 + audioLevel * 1.4 + audioTreble * 0.5;
+  topLight.intensity = 1.45 + audioLevel * 1.0 + audioAttack * 0.3;
+  mouseLight.intensity = isDragging ? 1.45 : 0.5 + audioLevel * 0.5 + audioAttack * 0.35;
+
+  innerMat.color.copy(C1);
+  innerMat.emissive.copy(C1);
+  midMat.color.copy(C1).multiplyScalar(0.28 + audioFlux * 0.06);
+  midMat.emissive.copy(C1);
+  shellMat.color.copy(C1);
+  haloMat.color.copy(C1);
+  ringMat.color.copy(C1);
+  ringMat2.color.copy(C1);
+  cbMat.color.copy(satelliteCyan).lerp(satelliteRed, satelliteRedMix);
+  cbMat.emissive.copy(cbMat.color).multiplyScalar(0.18 + audioLevel * 0.14);
+
+  /* ── Crystal glow stack ── */
+  const glowPulse = 0.74 + Math.sin(elapsed * 1.8) * 0.08 + audioLevel * 0.2 + audioAttack * 0.08;
+  innerMat.emissiveIntensity = 0.78 + Math.sin(elapsed * 2.15) * 0.18 + audioLevel * 0.95 + audioAttack * 0.32;
+  innerMat.opacity = 0.84 + Math.sin(elapsed * 2.65) * 0.04;
+  midMat.emissiveIntensity = 0.38 + Math.sin(elapsed * 1.55) * 0.08 + audioLevel * 0.56 + audioTreble * 0.18;
+  midMat.opacity = 0.52 + Math.sin(elapsed * 1.3) * 0.06 + audioLevel * 0.12;
+  shellMat.opacity = 0.11 + glowPulse * 0.1 + audioLevel * 0.12 + audioAttack * 0.04;
+  haloMat.opacity = 0.06 + glowPulse * 0.055 + audioLevel * 0.05;
+  ringMat.opacity = 0.14 + glowPulse * 0.08 + audioTreble * 0.04;
+  ringMat2.opacity = 0.075 + glowPulse * 0.04 + audioBass * 0.03;
+  ringMesh.rotation.z += dt * (0.24 + audioLevel * 0.28 + audioAttack * 0.2);
+  ringMesh2.rotation.z -= dt * (0.12 + audioLevel * 0.18 + audioTreble * 0.08);
+
+  /* ── Scroll eased rotation and camera drift ── */
+  const ease = 1 - Math.exp(-dt * 8.5);
+  scrollProgress = lerp(scrollProgress, scrollTarget, ease);
+  scrollRotY = lerp(scrollRotY, scrollProgress * TAU, ease);
+  scrollRotX = lerp(scrollRotX, Math.sin(scrollProgress * Math.PI) * 0.42, ease);
+  scrollCamX = lerp(scrollCamX, Math.sin(scrollProgress * TAU * 0.35) * 1.45, ease);
+  scrollCamY = lerp(scrollCamY, Math.sin(scrollProgress * Math.PI) * 0.85 - 0.15, ease);
+  scrollCamZ = lerp(scrollCamZ, lerp(0, -3.1, scrollProgress), ease);
+
+  crystalGroup.rotation.y = scrollRotY + elapsed * 0.08;
+  crystalGroup.rotation.x = scrollRotX + audioBass * 0.05;
+  crystalGroup.rotation.z = Math.sin(elapsed * 0.35) * 0.045;
+  crystalGroup.position.y = Math.sin(elapsed * 0.55) * 0.08 + audioLevel * 0.08;
+  crystalGroup.position.x = Math.sin(elapsed * 0.42) * 0.04;
+
+  /* ── Stardust layers ── */
+  starLayers.forEach((layer, idx) => {
+    const t = elapsed * layer.twinkleSpeed;
+    const twinkle = 0.78 + Math.sin(t + idx * 1.7) * 0.11 + Math.sin(t * 1.6 + idx) * 0.04;
+    layer.points.rotation.y = elapsed * layer.driftSpeed * (idx % 2 === 0 ? 1 : -1);
+    layer.points.rotation.x = Math.sin(elapsed * 0.08 + idx) * 0.1;
+    layer.points.position.x = Math.sin(elapsed * layer.driftSpeed * 0.7 + idx) * (0.35 + idx * 0.08);
+    layer.points.position.y = Math.cos(elapsed * layer.driftSpeed * 0.5 + idx) * 0.16;
+    layer.points.position.z = Math.sin(elapsed * 0.16 + idx * 0.8) * (0.9 + idx * 0.18);
+    layer.points.material.opacity = layer.opacityBase * twinkle * (1 + audioLevel * 0.12);
+    layer.points.material.size = layer.sizeBase * (0.92 + audioLevel * 0.09 + Math.sin(elapsed * 0.9 + idx) * 0.02);
+  });
+
+  /* ── Calm click effects ── */
+  for (let i = activeOrbitalRings.length - 1; i >= 0; i--) {
+    const ring = activeOrbitalRings[i];
+    const age = elapsed - ring.userData.startTime;
+    const t = clamp(age / ring.userData.duration, 0, 1);
+    const eased = easeOutCubic(t);
+    ring.scale.setScalar(ring.userData.maxScale * eased);
+    ring.material.opacity = 0.5 * (1 - t);
+    ring.rotation.z += dt * 0.04;
+    if (t >= 1 || ring.material.opacity <= 0.001) {
+      disposeMesh(ring);
+      activeOrbitalRings.splice(i, 1);
+    }
+  }
+  for (let i = activeMicroSatellites.length - 1; i >= 0; i--) {
+    const sat = activeMicroSatellites[i];
+    const age = elapsed - sat.userData.startTime;
+    const t = clamp(age / sat.userData.duration, 0, 1);
+    sat.position.addScaledVector(sat.userData.driftDir, sat.userData.driftSpeed * dt * 45);
+    sat.material.opacity = 0.9 * (1 - t);
+    sat.scale.setScalar(1 - t * 0.08);
+    if (t >= 1 || sat.material.opacity <= 0.001) {
+      disposeMesh(sat);
+      activeMicroSatellites.splice(i, 1);
+    }
+  }
+
+  /* ── Orbit lights ── */
+  keyLight.position.set(Math.sin(elapsed * 0.35) * 10, 7.8 + Math.cos(elapsed * 0.3) * 1.8, 14);
+  rimLight.position.set(Math.cos(elapsed * 0.28) * 13, -5.2, Math.sin(elapsed * 0.24) * 9 - 7);
+  topLight.position.set(Math.sin(elapsed * 0.16) * 3, 12.5, -7 + Math.cos(elapsed * 0.2) * 1.6);
+  mouseLight.position.copy(mouseTarget);
+  mouseLight.position.z = 6;
+
+  /* ── CUBE instances (retained performance field) ── */
+  const baseAngle = elapsed * 0.18;
+  for (let i = 0; i < COUNT; i++) {
+    const sp = speeds[i], ph = phases[i], rr = radii[i];
+    const phaseA = Math.sin(elapsed * 0.12 + ph * 1.7);
+    const phaseB = Math.cos(elapsed * 0.18 + ph * 0.9);
+    const band = 0.18 + 0.28 * (0.5 + 0.5 * phaseA);
+    const orbitRadius = ringRadius + (rr * 0.9 - ringThickness * 0.5) * band + Math.sin(elapsed * bobFreq[i] * 0.2 + ph * 1.3) * ringJitter * satelliteWanderBoost;
+    const theta = baseAngle * sp + ph + phaseB * 0.12 + Math.sin(elapsed * 0.12 + ph) * 0.05;
+    const ringPlaneTilt = Math.sin(elapsed * 0.05 + ph * 0.7) * 0.08;
+    const ringX = Math.cos(theta) * orbitRadius;
+    const ringZ = Math.sin(theta) * orbitRadius;
+    const ringY = ringPlaneTilt * ringHeight * satelliteWanderBoost + Math.sin(elapsed * bobFreq[i] * 0.18 + ph) * bobAmp[i] * 0.16 * satelliteWanderBoost;
+    tmpV.set(
+      ringX + scatterDirs[i].x * scatterStrengths[i] * satelliteScatterMix,
+      ringY + scatterDirs[i].y * scatterStrengths[i] * satelliteScatterMix,
+      ringZ + scatterDirs[i].z * scatterStrengths[i] * satelliteScatterMix
+    );
+    tmpQ.setFromEuler(new THREE.Euler(elapsed * sp * 0.16 + ph * 0.08, elapsed * sp * 0.5 + ph, elapsed * sp * 0.12));
+    tmpS.setScalar(0.82 + 0.06 * band);
+    tmpM.compose(tmpV, tmpQ, tmpS);
+    cubes.setMatrixAt(i, tmpM);
+  }
+  cubes.instanceMatrix.needsUpdate = true;
+
+  /* ── Camera orbit with cinematic easing ── */
+  if (!isDragging) {
+    orbitThetaV *= 0.94;
+    orbitPhiV *= 0.94;
+    orbitTheta += orbitThetaV + dt * 0.028;
+    orbitPhi += orbitPhiV;
+  }
+  const camDist = clamp(orbitDist - scrollProgress * 4.6 - audioLevel * 1.4 - audioAttack * 0.6, 5, 45);
+  cameraTarget.set(
+    camDist * Math.sin(orbitTheta) * Math.cos(orbitPhi) + scrollCamX,
+    camDist * Math.sin(orbitPhi) + scrollCamY,
+    camDist * Math.cos(orbitTheta) * Math.cos(orbitPhi) + 2.2 + scrollCamZ
+  );
+  camera.position.lerp(cameraTarget, ease);
+  lookTarget.set(scrollCamX * 0.22, scrollCamY * 0.1, 0);
+  camera.lookAt(lookTarget);
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
