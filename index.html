@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Market Capital Constellations</title>
+<title>Solar Drift — Galaxy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=DM+Mono:wght@300&display=swap" rel="stylesheet">
 <style>
@@ -223,6 +223,7 @@ scene.add(sunGroup);
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbyWcdZvz6hg2l366xDvl8EGx20wLpTmt6YLhRVq72Yf50FrtsypcgHRRCNShBFmwmva0Q/exec';
 
 const planetMeshes = [];
+const planetPMeshCache = []; // 快取 pMesh 陣列，避免 checkHover() 每幀重建
 const labelsContainer = document.getElementById('labels');
 
 // Kepler eccentric anomaly solver (Newton's method) — kept for circular orbits (e=0)
@@ -290,6 +291,7 @@ function buildPlanet(pd) {
   labelsContainer.appendChild(label);
 
   planetMeshes.push({ group, pMesh, hazeMesh, label, data:pd, M:Math.random()*TAU });
+  planetPMeshCache.push(pMesh); // 同步更新快取
 }
 
 // 市值 → 行星半徑（對數縮放）
@@ -413,7 +415,7 @@ function galaxyDensity(r, theta, armCount, armOffset) {
   galaxyGroup.add(bulgeMesh);
 
   // Layer 2: Disk + spiral arms
-  const diskN = 55000;
+  const diskN = 26000;
   const dPos = new Float32Array(diskN*3);
   const dCol = new Float32Array(diskN*3);
   // 4 main arms: Norma, Scutum-Centaurus, Sagittarius, Perseus (+ Orion spur)
@@ -843,7 +845,7 @@ function formatMarketCap(cap){
 function checkHover(){
   if(viewMode==='galaxy')return;
   raycaster.setFromCamera(mouseNDC,camera);
-  const hits=raycaster.intersectObjects(planetMeshes.map(p=>p.pMesh));
+  const hits=raycaster.intersectObjects(planetPMeshCache);
   if(hits.length>0){
     const pd=planetMeshes.find(p=>p.pMesh===hits[0].object);
     if(pd){
@@ -858,8 +860,8 @@ function checkHover(){
     }
   } else {
     hoveredPlanet=null; planetLabel.style.opacity='0';
-    infoName.textContent=viewMode==='galaxy'?'銀河系 Milky Way':'全球市值前15';
-    infoDetail.textContent=viewMode==='galaxy'?' ':' ';
+    infoName.textContent=viewMode==='galaxy'?'銀河系 Milky Way':'美股市值前10';
+    infoDetail.textContent=viewMode==='galaxy'?'直徑 ~10萬光年 · 2000億顆恆星':'市值最大放最內圈';
     document.body.style.cursor='default';
   }
 }
