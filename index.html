@@ -209,33 +209,16 @@ rimB.position.set(200,-40,100); scene.add(rimB);
 ════════════════════════════════════════════ */
 const sunGroup = new THREE.Group();
 scene.add(sunGroup);
-const sunTexture = new THREE.TextureLoader().load('assets/sun-texture.png');
-sunGroup.add(new THREE.Mesh(
-  new THREE.SphereGeometry(4.37,64,64),
-  new THREE.MeshBasicMaterial({ map:sunTexture })
-));
-[[0xffcf60,6.55,0.22],[0xff9b22,10.01,0.08]].forEach(([c,sz,op])=>{
+[[0xfff0b0,4.37,1.0,false],[0xffcf60,6.55,0.22,true],[0xff9b22,10.01,0.08,true]].forEach(([c,sz,op,back])=>{
   sunGroup.add(new THREE.Mesh(new THREE.SphereGeometry(sz,32,32),new THREE.MeshBasicMaterial({
-    color:c,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide
+    color:c,transparent:back,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,side:back?THREE.BackSide:THREE.FrontSide
   })));
 });
-// 柔化太陽外暈：改用漸層貼圖 sprite 取代多層球體，畫面更柔和、且效能比堆疊球體更省
-const glowCanvas = document.createElement('canvas');
-glowCanvas.width = glowCanvas.height = 256;
-const gctx = glowCanvas.getContext('2d');
-const glowGrad = gctx.createRadialGradient(128,128,0,128,128,128);
-glowGrad.addColorStop(0,'rgba(255,240,200,0.85)');
-glowGrad.addColorStop(0.22,'rgba(255,207,96,0.42)');
-glowGrad.addColorStop(0.5,'rgba(255,155,34,0.16)');
-glowGrad.addColorStop(1,'rgba(255,155,34,0)');
-gctx.fillStyle = glowGrad;
-gctx.fillRect(0,0,256,256);
-const glowTex = new THREE.CanvasTexture(glowCanvas);
-const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-  map:glowTex, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
-}));
-glowSprite.scale.set(58,58,1);
-sunGroup.add(glowSprite);
+[13.65,19.11,25.48].forEach((r,i)=>{
+  sunGroup.add(new THREE.Mesh(new THREE.SphereGeometry(r,24,24),new THREE.MeshBasicMaterial({
+    color:0xff9b22,transparent:true,opacity:0.05-i*0.012,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide
+  })));
+});
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbyWcdZvz6hg2l366xDvl8EGx20wLpTmt6YLhRVq72Yf50FrtsypcgHRRCNShBFmwmva0Q/exec';
 
@@ -907,7 +890,6 @@ function animate(){
   /* ── Sun pulse ── */
   const sunPulse=1+Math.sin(elapsed*1.2)*0.025;
   sunGroup.scale.setScalar(sunPulse);
-  sunGroup.rotation.y += 0.0006*globalSpeed*60*dt; // 太陽緩慢自轉，讓表面貼圖有生命感
   sunLight.intensity=3.5+Math.sin(elapsed*0.85)*0.4;
 
   /* ── Planets: Kepler elliptical orbits ── */
